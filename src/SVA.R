@@ -43,6 +43,8 @@ cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bl
 
 data.file = paste0(root.dir, "bms41/Humans/HeroG/data.env.Rdata")
 
+default.min.beta.diff = 0.01
+
 loadData = function(){
   
   read.data     = suppressWarnings(readSamples(cov.folder, sample.file))
@@ -116,6 +118,16 @@ tab1.birth  = topTable(fit.e1, coef="BirthweightCatlow",p.value=0.05, number=Inf
 tab1.sex    = topTable(fit.e1, coef="SexM",p.value=0.05, number=Inf, adjust = "fdr")
 tab1.season = topTable(fit.e1, coef="Seasonwet",p.value=0.05, number=Inf, adjust = "fdr")
 
+#' Export a table of significant differentially methylated loci
+#' 
+#' Adds genomic ranges to the table of loci and exports to the given file.
+#' Ignores any loci for which the difference in methylation between groups
+#' is less than the given minimum.
+#' 
+#' @param loci the table of significantly differentially methylated loci
+#' @param filename the file to export to
+#' @param min_beta_diff the minimum difference between groups
+#'
 exportSignificantLoci = function(loci, filename, min_beta_diff){
   # Get the names of the significant rows and fetch the corresponding genomic ranges
   sig.rows   = as.numeric(rownames(loci))
@@ -152,20 +164,4 @@ exportSignificantLoci = function(loci, filename, min_beta_diff){
 tables = list(tab1.birth, tab1.sex, tab1.season)
 fnames = list("SVA.birth", "SVA.sex", "SVA.season")
 
-invisible(mapply(exportSignificantLoci, tables, fnames, 0.01))
-
-
-
-
-# Estimation by isva
-
-# phenotype = model.matrix(~BirthweightCat, data=data.env$sampleInfo)[,2]
-# confounds = model.matrix(~Sex+Season, data=data.env$sampleInfo)[,-1]
-# 
-# isva.result.nofactors = DoISVA(centred_m, phenotype, pvthCF = 0.01,
-#                      th = 0.05, ncomp = NULL,icamethod="JADE")
-
-# isva.result.confounds = DoISVA(centred_m, phenotype, cf.m = confounds, factor.log = c(T, T), pvthCF = 0.01,
-#        th = 0.05, ncomp = NULL,icamethod="JADE")
-
-# print(cor(isva.result$isv,confounds))
+invisible(mapply(exportSignificantLoci, tables, fnames, default.min.beta.diff))
