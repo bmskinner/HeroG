@@ -125,8 +125,21 @@ birth.dmrs  = getDmrOverlaps(paste0(root.dir, "bms41/Humans/HeroG/SVA.birth.5_re
 sex.dmrs    = getDmrOverlaps(paste0(root.dir, "bms41/Humans/HeroG/SVA.sex.5_reads.0.01_diff.csv"), dmr.granges)
 season.dmrs = getDmrOverlaps(paste0(root.dir, "bms41/Humans/HeroG/SVA.season.5_reads.0.01_diff.csv"), dmr.granges)
 
-# Reading all CpGs
-sva.granges    = createGrangesFromFile(paste0(root.dir, "bms41/Humans/HeroG/SVA.birth.5_reads.0.01_diff.csv"))
+# Read all CpGs and filter to make circos plots clearer
+sva.data = read.csv(paste0(root.dir, "bms41/Humans/HeroG/SVA.birth.5_reads.0.01_diff.csv"), header = T, sep=",", stringsAsFactors = F)
+sva.data$chr = paste0("chr", sva.data$chr)
+
+sva.data = sva.data %>% filter(chr %in% seqnames(hg38.ideo)) %>% # remove unmapped contigs
+  arrange(adj.P.Val) %>%
+  head(1000) # take on the top 1000 significant loci
+  
+sva.granges = with(sva.data, GRanges(seqnames = chr, 
+                                     IRanges(start=start, 
+                                             end=end),
+                                     strand = strand,
+                                     seqinfo=Seqinfo(seqlevels(hg38.ideo), 
+                                                     seqlengths(hg38.ideo))))
+
 sva.combined = GenomicRanges::reduce(GenomicRanges::shift(GenomicRanges::resize(sva.granges, 1000),-500))
 
 #' Plot CpGs in samples 
@@ -227,7 +240,7 @@ findOverlapsWithGenes = function(ranges.to.annotate, file.name){
   write.table(cpgs.annotated, file=file.name, sep="\t", row.names = F)
 }
 
-output.dir   = paste0(root.dir, "bms41/Humans/HeroG/dmrs/")
+output.dir = paste0(root.dir, "bms41/Humans/HeroG/dmrs/")
 #cpgs overlapping all genes 
 #findOverlapsWithGenes(sva.granges, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_example.tsv"))
 #overlap with birth dmrs for all cordbloods
@@ -235,19 +248,13 @@ output.dir   = paste0(root.dir, "bms41/Humans/HeroG/dmrs/")
 #findOverlapsWithGenes(birth.dmrs, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_DMRs_blahblah.tsv"))
 
 
-seqlevels(dmr.granges) = c(seqlevels(dmr.granges), 21, "Y")
-seqlevels(dmr.granges) = paste0("chr", seqlevels(dmr.granges))
-seqlengths(dmr.granges) = seqlengths(hg38.ideo)
-
-
-out.folder = "../plots/circos/"
-
-dmr.outfile = paste0(out.folder, "DMRs from BiSeq.png")
+# Make circos plots of the DMRs, and the CpGs
+circos.dir  = paste0(root.dir, "bms41/Humans/HeroG/plots/circos/")
+dmr.outfile = paste0(circos.dir, "DMRs from BiSeq.png")
 
 p = ggbio() + circle(hg38.ideo, geom = "ideo", fill = "gray70") +
   circle(dmr.granges, geom = "rect", color = "orange", size=1) +
   circle(sva.combined, geom = "rect", color = "blue", size=1) +
   circle(birth.dmrs, geom = "rect", color = "green", size=1) +
-  circle(sex.dmrs, geom = "rect", color = "red", size=1) +
   circle(hg38.ideo, geom = "scale", size = 2)
-ggsave(p)
+ggsave(dmr.outfile, plot=p)
