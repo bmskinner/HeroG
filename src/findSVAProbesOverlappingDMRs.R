@@ -23,7 +23,7 @@ setUpWorkSpace = function() {
   biopackages = c("BiSeq", "GenomicRanges", "GenomeGraphs", "biomaRt", "BiSeq", "rtracklayer")
   lapply(biopackages, installIfNeededFromBioconductor)
   
-  packages = c("dplyr", "ggplot2")
+  packages = c("dplyr", "ggplot2", "ggbio")
   lapply(packages, installIfNeeded)
   
   source("readMethylationSamples.R") # simplify reading of bismark files
@@ -31,9 +31,34 @@ setUpWorkSpace = function() {
 ##cq added ggplot
 setUpWorkSpace()
 
+# Generate a human reference genome
+createReferenceGenome = function(){
+  data(UCSC.HG38.Human.CytoBandIdeogram)
+  
+  # Find the sequence lengths for the chromosomes
+  chrlengths = c()
+  chrnames   = c()
+  for( s in unique(UCSC.HG38.Human.CytoBandIdeogram$Chromosome)){
+    chr = UCSC.HG38.Human.CytoBandIdeogram[UCSC.HG38.Human.CytoBandIdeogram$Chromosome == s,]
+    end = max(chr$chromEnd)
+    cat(s, ": ", end, "\n")
+    chrlengths = c(chrlengths, end)
+    chrnames = c(chrnames, s)
+  }
+  hg38.ideo = with(UCSC.HG38.Human.CytoBandIdeogram, GRanges(seqnames = Chromosome, 
+                                                             IRanges(start=chromStart+1, 
+                                                                     end=chromEnd),
+                                                             seqinfo=Seqinfo(chrnames, chrlengths)))
+  
+  hg38.ideo
+}
 
-root.dir =  "/mnt/research2/" # linux
-#root.dir =  "V:/" # windows
+
+hg38.ideo = createReferenceGenome()
+chrnames = seqlevels(hg38.ideo)
+chrlengths = seqlengths(hg38.ideo)
+# root.dir =  "/mnt/research2/" # linux
+root.dir =  "Y:/" # windows
 
 cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/cov_files")
 sample.file = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/Cord_bloods_low_high_removed_contam_samples_and_outliers_0145n_0397i_with_season_2_plus_extra.txt")
@@ -42,9 +67,36 @@ sampleInfo = readSamples(cov.folder, sample.file, info_only=T)$samples
 # Read a list of dmrs from file and build into genomic ranges
 dmr.file = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Cord_sample_analysis/DMRs_annotated_kit_male_cord_bloods.txt") 
 dmr.data = read.csv(dmr.file, header = T, sep="\t", stringsAsFactors = F)
+dmr.data$seqnames = paste0("chr", dmr.data$seqnames)
 dmr.granges = with(dmr.data, GRanges(seqnames = seqnames, 
                                      IRanges(start=start, 
-                                             end=end)))
+                                             end=end),
+                                     seqinfo=Seqinfo(seqlevels(hg38.ideo), seqlengths(hg38.ideo))))
+
+#' Import CpGs from file.
+#' 
+#' Constract a GRanges object with appropriate sequence lengths
+#' and drop any sequence names other than main chromsomes
+#'
+#' @param sva.file the file of CpGs
+#'
+#' @return the CpGs as a GenomicRanges object
+#' @export
+#'
+createGrangesFromFile = function(sva.file){
+  sva.data = read.csv(sva.file, header = T, sep=",", stringsAsFactors = F)
+  sva.data$chr = paste0("chr", sva.data$chr)
+  
+  sva.data = sva.data %>% filter(chr %in% seqnames(hg38.ideo)) # remove unmapped contigs
+  
+  sva.granges = with(sva.data, GRanges(seqnames = chr, 
+                                       IRanges(start=start, 
+                                               end=end),
+                                       strand = strand,
+                                       seqinfo=Seqinfo(seqlevels(hg38.ideo), 
+                                                       seqlengths(hg38.ideo))))
+  sva.granges
+}
 
 #' Find DMRs overlapping CpGs in the given input file
 #'
@@ -56,18 +108,15 @@ dmr.granges = with(dmr.data, GRanges(seqnames = seqnames,
 #'
 #' @examples
 getDmrOverlaps = function(sva.file, dmr.granges){
-  sva.data = read.csv(sva.file, header = T, sep=",", stringsAsFactors = F)
   
-  sva.granges = with(sva.data, GRanges(seqnames = chr, 
-                                       IRanges(start=start, 
-                                               end=end),
-                                       strand = strand))
-  
+  sva.granges = createGrangesFromFile(sva.file)
   # Allow an offset of 1 in either direction
   sva.granges = GenomicRanges::shift(GenomicRanges::resize(sva.granges, 2), -1)
   
 
   dmrs.with.sva = subsetByOverlaps(sva.granges,dmr.granges)
+  
+  
   dmrs.with.sva
 }
 
@@ -77,11 +126,7 @@ sex.dmrs    = getDmrOverlaps(paste0(root.dir, "bms41/Humans/HeroG/SVA.sex.5_read
 season.dmrs = getDmrOverlaps(paste0(root.dir, "bms41/Humans/HeroG/SVA.season.5_reads.0.01_diff.csv"), dmr.granges)
 
 # Reading all CpGs
-sva.data    = read.csv(paste0(root.dir, "bms41/Humans/HeroG/SVA.birth.5_reads.0.01_diff.csv"), header = T, sep=",", stringsAsFactors = F)
-sva.granges = with(sva.data, GRanges(seqnames = chr, 
-                                     IRanges(start=start, 
-                                             end=end)))
-
+sva.granges    = createGrangesFromFile(paste0(root.dir, "bms41/Humans/HeroG/SVA.birth.5_reads.0.01_diff.csv"))
 sva.combined = GenomicRanges::reduce(GenomicRanges::shift(GenomicRanges::resize(sva.granges, 1000),-500))
 
 #' Plot CpGs in samples 
@@ -148,11 +193,9 @@ plotCg = function(range.data, min_reads, min_diff){
 }
 
 # match reads and methylation diff ie 10, 0.01 etc
-iterateCg = function(range.data, i){
-  plotCg(range.data[i,], 5, 0.01)
-}
-
-#invisible(lapply(1:length(sva.granges), iterateCg))
+# iterateCg = function(range.data, i){
+#   plotCg(range.data[i,], 5, 0.01)
+# }
 
 
 #
@@ -188,5 +231,23 @@ output.dir   = paste0(root.dir, "bms41/Humans/HeroG/dmrs/")
 #cpgs overlapping all genes 
 #findOverlapsWithGenes(sva.granges, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_example.tsv"))
 #overlap with birth dmrs for all cordbloods
-findOverlapsWithGenes(birth.dmrs, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_0.01_example_BWCat_cordbloods_male.tsv"))
+# findOverlapsWithGenes(birth.dmrs, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_0.01_example_BWCat_cordbloods_male.tsv"))
 #findOverlapsWithGenes(birth.dmrs, paste0(output.dir, "CpGs_overlapping_annotated_genes_5_reads_DMRs_blahblah.tsv"))
+
+
+seqlevels(dmr.granges) = c(seqlevels(dmr.granges), 21, "Y")
+seqlevels(dmr.granges) = paste0("chr", seqlevels(dmr.granges))
+seqlengths(dmr.granges) = seqlengths(hg38.ideo)
+
+
+out.folder = "../plots/circos/"
+
+dmr.outfile = paste0(out.folder, "DMRs from BiSeq.png")
+
+p = ggbio() + circle(hg38.ideo, geom = "ideo", fill = "gray70") +
+  circle(dmr.granges, geom = "rect", color = "orange", size=1) +
+  circle(sva.combined, geom = "rect", color = "blue", size=1) +
+  circle(birth.dmrs, geom = "rect", color = "green", size=1) +
+  circle(sex.dmrs, geom = "rect", color = "red", size=1) +
+  circle(hg38.ideo, geom = "scale", size = 2)
+ggsave(p)

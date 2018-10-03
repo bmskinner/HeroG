@@ -115,8 +115,8 @@ fit.e1  = eBayes(data.env$fit)
 # Get FDR corrected differential probe list, with any probes below the pvalue threshold
 tab.all     = topTable(fit.e1, p.value=0.05, number=Inf, adjust = "fdr")
 tab1.birth  = topTable(fit.e1, coef="BirthweightCatlow",p.value=0.05, number=Inf, adjust = "fdr")
-tab1.sex    = topTable(fit.e1, coef="SexM",p.value=0.05, number=Inf, adjust = "fdr")
-tab1.season = topTable(fit.e1, coef="Seasonwet",p.value=0.05, number=Inf, adjust = "fdr")
+tab1.sex    = topTable(fit.e1, coef="SexM",             p.value=0.05, number=Inf, adjust = "fdr")
+tab1.season = topTable(fit.e1, coef="Seasonwet",        p.value=0.05, number=Inf, adjust = "fdr")
 
 #' Export a table of significant differentially methylated loci
 #' 
