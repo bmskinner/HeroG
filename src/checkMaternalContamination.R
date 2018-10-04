@@ -33,7 +33,7 @@ root.dir =  "Y:/"
 sampleIinfoFile = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/Cord_bloods_low_high_removed_contam_samples_and_outliers_0145n_0397i_with_season_2_plus_extra.txt")
 cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/cov_files")
 
-read.data     = readSamples(cov.folder, sampleIinfoFile, 3)
+read.data     = readSamples(cov.folder, sampleIinfoFile, nSamples=3)
 methylDataRaw = read.data$methyldata
 sampleInfo    = read.data$samples
 

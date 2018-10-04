@@ -27,6 +27,11 @@ setUpWorkSpace = function() {
   packages = c("MASS", "ggplot2", "isva")
   lapply(packages, installIfNeeded)
   
+  if(!file.exists("readMethylationSamples.R")){
+    cat("Error: source script readMethylationSamples.R was not found")
+    cat("Are you in the correct working directory?")
+    quit(save="no")
+  }
   source("readMethylationSamples.R") # simplify reading of bismark files
 }
 
@@ -35,48 +40,70 @@ setUpWorkSpace()
 data.env = new.env() # data for the ongoing analysis
 
 # Variables to change before running on cluster
-# root.dir =  "Y:/"
-root.dir =  "/mnt/research2/"
+root.dir =  "Y:/"
+# root.dir =  "/mnt/research2/"
 
 sample.file = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/Cord_bloods_low_high_removed_contam_samples_and_outliers_0145n_0397i_with_season_2_plus_extra.txt")
 cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/cov_files")
 
-data.file = paste0(root.dir, "bms41/Humans/HeroG/data.env.Rdata")
+default.min.beta.diff   = 0.01 # minimum required difference in methylation fraction
+default.min.reads       = 5   # minimum number of reads in every sample
+default.high.exp.filter = 0.1  # fraction of highest coverage loci to exclude from each sample
 
-default.min.beta.diff = 0.01
 
-loadData = function(){
+#' Load and filter data
+#' 
+#' Create the table for SVA input.  The data should be a matrix with features
+#' in the rows and samples in the columns.
+#' 
+#' Filter the incoming data by readcount. Discard the CpGs with the top 10% of total read coverage in each sample; this should
+#' help remove artefacts due to PCR duplication
+#' 
+#' @param  min.reads Only include CpGs for which there are this many reads in every sample
+#' @return a matrix with CpGs in rows and samples in columns.
+loadData = function(min.reads){
+  cat("Excluding loci with top 10% of read coverage in each sample\n")
+  cat("Excluding loci with less than", min.reads, "reads in any sample\n")
   
-  read.data     = suppressWarnings(readSamples(cov.folder, sample.file))
+  APPLY_TO_ROWS = 1 # parameter for base::apply
+  APPLY_TO_COLS = 2 # parameter for base::apply
+  read.data     = readSamples(cov.folder, sample.file, nSamples=5)
   methylDataRaw = read.data$methyldata
-  data.env$sampleInfo    = read.data$samples
-
-  # Create the table for SVA input.  The data should be a matrix with features
-  # in the rows and samples in the columns
-  # Remove rows where the total read count is less than <min.reads> in any sample - not informative
-
-  min.reads = 5
-  cat("Filtering reads for", min.reads, "total read depth\n")
-  valid_total = apply( totalReads(methylDataRaw), 1, function(row) all(row >=min.reads ))
-  meth_reads  = methReads(methylDataRaw)[valid_total,]
-  total_reads = totalReads(methylDataRaw)[valid_total,]
-  cat("Retained", nrow(total_reads),"reads\n")
+  data.env$sampleInfo = read.data$samples
   
-  data.env$b_values = (meth_reads+1)/ (total_reads+2)
+  # In each col, find the 90th percentile
+  sample.quantiles = apply(totalReads(methylDataRaw), APPLY_TO_COLS, function(col) quantile(col, 1-default.high.exp.filter))
+  
+  # Function to test if the value in each cell is less than the 90th percentile of its column
+  areRowCellsBelowColQuantiles = function(row, col.quantiles){
+    all(sapply(1:length(row), function(i) row[i]<col.quantiles[i] )) 
+  }
+  
+  # Create a row predicate on coverage per sample
+  valid.counts = apply(totalReads(methylDataRaw), APPLY_TO_ROWS, areRowCellsBelowColQuantiles, sample.quantiles)
+
+  # Create a row predicate on mimumum read count for each sample
+  valid.min = apply(totalReads(methylDataRaw), APPLY_TO_ROWS, function(row) all(row>=min.reads ))
+  
+  # Combine the predicates
+  valid.all = valid.counts & valid.min
+
+  # Apply the predicate to the read data
+  meth.reads  = methReads(methylDataRaw)[valid.all,]
+  total.reads = totalReads(methylDataRaw)[valid.all,]
+  cat("Retained", nrow(total.reads),"loci\n")
+  
+  # Ensure methylated fractions of zero and 1 are never possible
+  data.env$b_values = (meth.reads+1)/ (total.reads+2)
   colnames(data.env$b_values) = data.env$sampleInfo$Sample.Name
-  data.env$methylDataRaw = methylDataRaw[valid_total,] # keep the valid ranges in the data environent to be saved
-  save(data.env, file = data.file)
-  cat("Saved data environment to file\n")
+  data.env$methylDataRaw = methylDataRaw[valid.all,] # keep the valid ranges in the data environent
 }
 
-if(file.exists(data.file)){
-  cat("Loading data environment from file\n")
-  load(data.file, envir = globalenv())
-} else {
-  loadData()
-}
+loadData(default.min.reads)
 
-# Mean centre the b-values
+
+# Mean centre the b-values to prevent fully methylated or unmethylated values
+# swamping the results
 centred_m = as.data.frame(data.env$b_values) %>% 
   mutate(meanrow = rowMeans(.)) %>% 
   mutate_all(funs(.-meanrow)) %>%
@@ -96,17 +123,20 @@ cat("Estimating covariates\n")
 
 # Apply SVA to the data
 # Find the number of factors to be estimated, then estimate them
-# n.sv  = sva::num.sv(beta_values,mod.real,method="leek")
-svobj = sva::sva(centred_m,mod.real,mod.null,n.sv=NULL)
+# n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
+nsvobj = sva::sva(centred_m,mod.real,mod.null,n.sv=NULL)
+if(!exists("nsvobj")){
+  cat("SVA failed, estimating number of SVs")
+  n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
+  cat("Estimated number of surrogate variables is", n.sv)
+  quit(save="no")
+}
 
 # Add the estimated factors to the model, and fit the new model
 cat("\nFitting covariates\n")
 mod.real.sv = cbind(mod.real,svobj$sv)
 mod.null.sv = cbind(mod.null,svobj$sv)
 data.env$fit = limma::lmFit(centred_m, mod.real.sv, method="robust")
-
-save(data.env, file = data.file)
-cat("Saved data environment to file\n")
 
 # Use ebayes to calculate the test statistics 
 cat("Calculating test statistics\n")
@@ -157,11 +187,9 @@ exportSignificantLoci = function(loci, filename, min_beta_diff){
   
   min_read_count = min(totalReads(sig.ranges))
   
-  table.file = paste0(root.dir, "bms41/Humans/HeroG/", filename, ".", min_read_count, "_reads.", min_beta_diff, "_diff.csv")
+  table.file = paste0(root.dir, "bms41/Humans/HeroG/sva/", filename, ".", min_read_count, "_reads.", min_beta_diff, "_diff.csv")
   write.table(result.table, file=table.file, sep=",", row.names = F, col.names = T)
 }
 
-tables = list(tab1.birth, tab1.sex, tab1.season)
-fnames = list("SVA.birth", "SVA.sex", "SVA.season")
-
-invisible(mapply(exportSignificantLoci, tables, fnames, default.min.beta.diff))
+tables = list("SVA.birth"=tab1.birth, "SVA.sex"=tab1.sex, "SVA.season"=tab1.season)
+invisible(mapply(exportSignificantLoci, tables, names(tables), default.min.beta.diff))

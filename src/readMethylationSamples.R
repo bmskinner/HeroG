@@ -1,7 +1,7 @@
-library(BiSeq)
-library(GenomicRanges)
-library(dplyr)
-library(tidyr)
+suppressWarnings(library(BiSeq))
+suppressWarnings(library(GenomicRanges))
+suppressWarnings(library(dplyr))
+suppressWarnings(library(tidyr))
 
 #' Title Read Bismark coverage files from the given folder
 #'
@@ -17,7 +17,7 @@ library(tidyr)
 #' data = readSamples(folder, file)
 #' methylDataRaw = data$methyldata
 #' sampleInfo = data$samples
-readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0 ){
+readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0, silent=F ){
   
   sampleInfo = read.table(sample_info_file, sep="\t", header=T, stringsAsFactors = F)
   
@@ -27,10 +27,12 @@ readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0 ){
   if(nSamples>0){
     files = files[1:nSamples]
   }
-  
-  cat("Files:\n")
-  cat(paste0(files, collapse = "\n"))
-  cat("\n")
+
+  if(!silent){
+    cat("Files:\n")
+    cat(paste0(files, collapse = "\n"))
+    cat("\n")
+  }
   # Get the file names for processing
   covName_coord = gsub(files, pattern = ".*cov_files/", replacement ="" )
   covName_coord = gsub(covName_coord, pattern = "_R1_001_val_1.fq.gz_bismark_bt2_pe.bismark.cov.gz", replacement ="" )
