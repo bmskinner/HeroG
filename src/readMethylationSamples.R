@@ -3,7 +3,7 @@ suppressWarnings(library(GenomicRanges))
 suppressWarnings(library(dplyr))
 suppressWarnings(library(tidyr))
 
-#' Title Read Bismark coverage files from the given folder
+#' Read Bismark coverage files from the given folder
 #'
 #' @param cov_folder the folder containing coverage files
 #' @param sample_info_file the sample information
@@ -17,7 +17,7 @@ suppressWarnings(library(tidyr))
 #' data = readSamples(folder, file)
 #' methylDataRaw = data$methyldata
 #' sampleInfo = data$samples
-readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0, silent=F ){
+readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0){
   
   sampleInfo = read.table(sample_info_file, sep="\t", header=T, stringsAsFactors = F)
   
@@ -28,11 +28,10 @@ readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0, si
     files = files[1:nSamples]
   }
 
-  if(!silent){
-    cat("Files:\n")
-    cat(paste0(files, collapse = "\n"))
-    cat("\n")
-  }
+  cat("Files:\n")
+  cat(paste0(files, collapse = "\n"))
+  cat("\n")
+
   # Get the file names for processing
   covName_coord = gsub(files, pattern = ".*cov_files/", replacement ="" )
   covName_coord = gsub(covName_coord, pattern = "_R1_001_val_1.fq.gz_bismark_bt2_pe.bismark.cov.gz", replacement ="" )
@@ -49,7 +48,7 @@ readSamples = function(cov_folder, sample_info_file, info_only=F, nSamples=0, si
 
 # 
 # 
-#' Title Read the locations of cgs in the hg38 genome build
+#' Read the locations of cgs in the hg38 genome build
 #'
 #' @param hg38.hm450.file the file location
 #' @param strip.chr if true, remove "chr" strings from seqnames
@@ -76,7 +75,7 @@ readHg38CgLocations = function(hg38.hm450.file, strip.chr = T){
   return(hg38.ranges)
 }
 
-#' Title Map methyl sequence data to an Illumina cg list
+#' Map methyl sequence data to an Illumina cg list
 #'
 #' @param methyl.data the methylation read data as BSRaw
 #' @param sample.info the sample information table

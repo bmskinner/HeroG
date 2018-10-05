@@ -32,7 +32,7 @@ setUpWorkSpace = function() {
     cat("Are you in the correct working directory?")
     quit(save="no")
   }
-  source("readMethylationSamples.R") # simplify reading of bismark files
+  suppressPackageStartupMessages(source("readMethylationSamples.R")) # simplify reading of bismark files
 }
 
 setUpWorkSpace()
@@ -40,15 +40,15 @@ setUpWorkSpace()
 data.env = new.env() # data for the ongoing analysis
 
 # Variables to change before running on cluster
-root.dir =  "Y:/"
-# root.dir =  "/mnt/research2/"
+# root.dir =  "Y:/"
+root.dir =  "/mnt/research2/"
 
 sample.file = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/Cord_bloods_low_high_removed_contam_samples_and_outliers_0145n_0397i_with_season_2_plus_extra.txt")
 cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/cov_files")
 
-default.min.beta.diff   = 0.01 # minimum required difference in methylation fraction
-default.min.reads       = 5   # minimum number of reads in every sample
-default.high.exp.filter = 0.1  # fraction of highest coverage loci to exclude from each sample
+default.min.beta.diff   = 0.01  # minimum required difference in methylation fraction
+default.min.reads       = 10    # minimum number of reads in every sample
+default.high.cov.filter = 0.95  # exclude loci with more than this proportion of the maximum read depth in any sample
 
 
 #' Load and filter data
@@ -56,50 +56,82 @@ default.high.exp.filter = 0.1  # fraction of highest coverage loci to exclude fr
 #' Create the table for SVA input.  The data should be a matrix with features
 #' in the rows and samples in the columns.
 #' 
-#' Filter the incoming data by readcount. Discard the CpGs with the top 10% of total read coverage in each sample; this should
+#' Filter the incoming data by readcount. Discard the CpGs with the top n% of total read coverage in each sample; this should
 #' help remove artefacts due to PCR duplication
 #' 
 #' @param  min.reads Only include CpGs for which there are this many reads in every sample
+#' @param  cov.filter Exclude loci with more than the given percentile of reads in any sample
 #' @return a matrix with CpGs in rows and samples in columns.
-loadData = function(min.reads){
-  cat("Excluding loci with top 10% of read coverage in each sample\n")
+loadData = function(min.reads, cov.filter){
+  cat("Excluding loci with more than", cov.filter,"read coverage in any sample\n")
   cat("Excluding loci with less than", min.reads, "reads in any sample\n")
   
   APPLY_TO_ROWS = 1 # parameter for base::apply
   APPLY_TO_COLS = 2 # parameter for base::apply
-  read.data     = readSamples(cov.folder, sample.file, nSamples=5)
+  read.data     = readSamples(cov.folder, sample.file) #, nSamples=3
+  cat("Read samples\n")
   methylDataRaw = read.data$methyldata
   data.env$sampleInfo = read.data$samples
   
-  # In each col, find the 90th percentile
-  sample.quantiles = apply(totalReads(methylDataRaw), APPLY_TO_COLS, function(col) quantile(col, 1-default.high.exp.filter))
+  starting.reads = totalReads(methylDataRaw)
+  names(starting.reads) = data.env$sampleInfo$Sample.Name
   
-  # Function to test if the value in each cell is less than the 90th percentile of its column
-  areRowCellsBelowColQuantiles = function(row, col.quantiles){
-    all(sapply(1:length(row), function(i) row[i]<col.quantiles[i] )) 
+  # Plot the read counts for the given loci
+  plotReadCounts = function(reads, file.name){
+    tryCatch({
+      cat("Creating coverage plot\n")
+      
+      df = as.data.frame(reads)
+      names(df) = data.env$sampleInfo$Sample.Name
+      
+      gathered = df %>% gather(data.env$sampleInfo$Sample.Name, key = "sample_id", value = "total_reads")
+      plot.file  = paste0(root.dir, "bms41/Humans/HeroG/plots/sva/", file.name ,".png")
+      g = ggplot(gathered, aes(x=sample_id, y=total_reads))+
+        geom_violin()+
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+      cat("Saving coverage image to", plot.file, "\n")
+      ggsave(plot.file, plot=g)
+    }, error=function(e){
+      cat("Error making coverage image\n", paste0(e, collapse = "\n"))
+    }, warning=function(e){
+      cat("Issue making coverage image\n", paste0(e, collapse = "\n"))
+    })
   }
   
-  # Create a row predicate on coverage per sample
-  valid.counts = apply(totalReads(methylDataRaw), APPLY_TO_ROWS, areRowCellsBelowColQuantiles, sample.quantiles)
-
-  # Create a row predicate on mimumum read count for each sample
-  valid.min = apply(totalReads(methylDataRaw), APPLY_TO_ROWS, function(row) all(row>=min.reads ))
+  plotReadCounts(starting.reads, "Total reads")
   
-  # Combine the predicates
-  valid.all = valid.counts & valid.min
+  # In each col, find the nth percentile.
+  sample.quantiles = apply(starting.reads, APPLY_TO_COLS, function(col) quantile(col, cov.filter, type=8))
+  cat("Sample coverage filters:\n", paste0(sample.quantiles, collapse = "\n"), "\n")
+
+  cat("Creating predicate...\n")
+
+  # Predicate for min reads per sample
+  valid.min =  starting.reads[,1]>=min.reads
+  for(i in 1:ncol(starting.reads)) { valid.min = valid.min & starting.reads[,i]>=min.reads }
+
+  # Predicate for max reads per sample
+  valid.max = starting.reads[,1]<sample.quantiles[1]
+  for(i in 1:ncol(starting.reads)) { valid.max = valid.max & starting.reads[,i]<sample.quantiles[i] }
+
+  # Combine predicates
+  valid.all = valid.min & valid.max
 
   # Apply the predicate to the read data
-  meth.reads  = methReads(methylDataRaw)[valid.all,]
-  total.reads = totalReads(methylDataRaw)[valid.all,]
-  cat("Retained", nrow(total.reads),"loci\n")
+  cat("Applying predicate...\n")
+  meth.reads  = methReads(methylDataRaw)[valid.all,TRUE]
+  total.reads = totalReads(methylDataRaw)[valid.all,TRUE]
+  cat("Retained", nrow(total.reads),"of", nrow(starting.reads),"loci\n")
+  
+  plotReadCounts(total.reads, paste0("Filtered reads min-reads_",min.reads, " max-cov_", cov.filter))
   
   # Ensure methylated fractions of zero and 1 are never possible
   data.env$b_values = (meth.reads+1)/ (total.reads+2)
   colnames(data.env$b_values) = data.env$sampleInfo$Sample.Name
-  data.env$methylDataRaw = methylDataRaw[valid.all,] # keep the valid ranges in the data environent
+  data.env$methylDataRaw = methylDataRaw[valid.all,TRUE] # keep the valid ranges in the data environent
 }
 
-loadData(default.min.reads)
+loadData(default.min.reads, default.high.cov.filter)
 
 
 # Mean centre the b-values to prevent fully methylated or unmethylated values
@@ -129,7 +161,6 @@ if(!exists("nsvobj")){
   cat("SVA failed, estimating number of SVs")
   n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
   cat("Estimated number of surrogate variables is", n.sv)
-  quit(save="no")
 }
 
 # Add the estimated factors to the model, and fit the new model
