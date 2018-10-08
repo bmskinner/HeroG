@@ -47,8 +47,8 @@ sample.file = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bl
 cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bloods/cov_files")
 
 default.min.beta.diff   = 0.01  # minimum required difference in methylation fraction
-default.min.reads       = 10    # minimum number of reads in every sample
-default.high.cov.filter = 0.95  # exclude loci with more than this proportion of the maximum read depth in any sample
+default.min.reads       = 5     # minimum number of reads in every sample
+default.high.cov.filter = 0.99  # exclude loci with more than this proportion of the maximum read depth in any sample
 
 
 #' Load and filter data
@@ -90,7 +90,7 @@ loadData = function(min.reads, cov.filter){
         geom_violin()+
         theme(axis.text.x = element_text(angle = 90, hjust = 1))
       cat("Saving coverage image to", plot.file, "\n")
-      ggsave(plot.file, plot=g)
+      ggsave(file=plot.file, plot=g)
     }, error=function(e){
       cat("Error making coverage image\n", paste0(e, collapse = "\n"))
     }, warning=function(e){
@@ -151,20 +151,23 @@ means    = cbind(meanLow, meanHigh, meanLow-meanHigh)
 mod.real = model.matrix(~BirthweightCat+Sex+Season, data=data.env$sampleInfo)
 mod.null = model.matrix(~Sex+Season, data=data.env$sampleInfo)
 
-cat("Estimating covariates\n")
+cat("Estimating surrogate variables\n")
 
 # Apply SVA to the data
-# Find the number of factors to be estimated, then estimate them
-# n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
-nsvobj = sva::sva(centred_m,mod.real,mod.null,n.sv=NULL)
-if(!exists("nsvobj")){
-  cat("SVA failed, estimating number of SVs")
+svobj = sva::sva(centred_m,mod.real,mod.null,n.sv=NULL)
+if(!exists("svobj")){
+  cat("SVA failed using BE method, estimating number of SVs using Leek method")
   n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
-  cat("Estimated number of surrogate variables is", n.sv)
+  cat("Estimated number of surrogate variables is", n.sv,"\n")
+  if(n.sv>0){
+    svobj = sva::sva(centred_m,mod.real,mod.null,n.sv=n.sv)
+  } else {
+    cat("No surrogate variables detected\n")
+  }
 }
 
 # Add the estimated factors to the model, and fit the new model
-cat("\nFitting covariates\n")
+cat("\nFitting ",svobj$sv,"surrogate variables\n")
 mod.real.sv = cbind(mod.real,svobj$sv)
 mod.null.sv = cbind(mod.null,svobj$sv)
 data.env$fit = limma::lmFit(centred_m, mod.real.sv, method="robust")
@@ -215,12 +218,13 @@ exportSignificantLoci = function(loci, filename, min_beta_diff){
   
   # Filter by beta difference
   result.table = result.table %>% filter( abs(Diff)>=min_beta_diff)
-  
-  min_read_count = min(totalReads(sig.ranges))
-  
-  table.file = paste0(root.dir, "bms41/Humans/HeroG/sva/", filename, ".", min_read_count, "_reads.", min_beta_diff, "_diff.csv")
+    
+  table.file = paste0(root.dir, "bms41/Humans/HeroG/sva/", filename, ".", default.min.reads, "_reads.", default.high.cov.filter, "_cov.", min_beta_diff, "_diff.csv")
   write.table(result.table, file=table.file, sep=",", row.names = F, col.names = T)
 }
 
 tables = list("SVA.birth"=tab1.birth, "SVA.sex"=tab1.sex, "SVA.season"=tab1.season)
+
+
 invisible(mapply(exportSignificantLoci, tables, names(tables), default.min.beta.diff))
+
