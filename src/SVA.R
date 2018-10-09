@@ -49,6 +49,8 @@ cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bl
 default.min.beta.diff   = 0.01  # minimum required difference in methylation fraction
 default.min.reads       = 5     # minimum number of reads in every sample
 default.high.cov.filter = 0.99  # exclude loci with more than this proportion of the maximum read depth in any sample
+default.model.formula   = formula(~(BirthweightCat+Sex+Season)^2) # Model should include factors plus interactions of these factors
+default.null.formaula   = formula(~(Sex+Season)^2)
 
 
 #' Load and filter data
@@ -148,15 +150,15 @@ meanHigh = rowMeans(data.env$b_values[,data.env$sampleInfo$BirthweightCat=="high
 means    = cbind(meanLow, meanHigh, meanLow-meanHigh)
 
 # Create the real and null model matrix for estimation
-mod.real = model.matrix(~BirthweightCat+Sex+Season, data=data.env$sampleInfo)
-mod.null = model.matrix(~Sex+Season, data=data.env$sampleInfo)
+mod.real = model.matrix(default.model.formula, data=data.env$sampleInfo) 
+mod.null = model.matrix(default.null.formaula, data=data.env$sampleInfo)
 
 cat("Estimating surrogate variables\n")
 
 # Apply SVA to the data
 svobj = sva::sva(centred_m,mod.real,mod.null,n.sv=NULL)
 if(!exists("svobj")){
-  cat("SVA failed using BE method, estimating number of SVs using Leek method")
+  cat("SVA failed using BE method, estimating number of SVs using Leek method\n")
   n.sv  = sva::num.sv(centred_m,mod.real,method="leek")
   cat("Estimated number of surrogate variables is", n.sv,"\n")
   if(n.sv>0){
