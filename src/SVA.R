@@ -49,8 +49,8 @@ cov.folder  = paste0(root.dir, "crq20/methylSeq/pipelineTest/heroG/Extra_cord_bl
 default.min.beta.diff   = 0.01  # minimum required difference in methylation fraction
 default.min.reads       = 5     # minimum number of reads in every sample
 default.high.cov.filter = 0.99  # exclude loci with more than this proportion of the maximum read depth in any sample
-default.model.formula   = formula(~(BirthweightCat+Sex+Season)^2) # Model should include factors plus interactions of these factors
-default.null.formaula   = formula(~(Sex+Season)^2)
+default.model.formula   = formula(~BirthweightCat+Sex+Season)
+default.null.formaula   = formula(~Sex+Season)
 
 
 #' Load and filter data
