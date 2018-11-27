@@ -59,7 +59,7 @@ chrlengths = seqlengths(hg38.ideo)
 root.dir =  "Y:/" # windows
 working.dir = paste0(root.dir, "bms41/Humans/HeroG/sva/")
 
-gtf.file     = 'O:/Sequencing/Genome/Human/gtf/ensembl/grch38/release-83/Homo_sapiens.GRCh38.83.gtf'
+gtf.file     = 'O:/Sequencing/Genome/Human/gtf/ensembl/grch38/release-85/Homo_sapiens.GRCh38.85.gtf.gz'
 gtf.data     = import.gff(gtf.file, format="gtf",feature.type="gene")
 seqlevels(gtf.data) = paste0("chr", seqlevels(gtf.data)) #  add 'chr' prefix to annotation data
 
